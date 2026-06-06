@@ -25,12 +25,146 @@ const STATUS_LABELS: Record<PostStatus, string> = {
   posted: 'Posted',
 }
 
+function PostModal({ post, onClose, onConfirmPosted }: {
+  post: Post
+  onClose: () => void
+  onConfirmPosted: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(post.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback: select text in the textarea
+      const el = document.getElementById('modal-content') as HTMLTextAreaElement
+      if (el) {
+        el.select()
+        document.execCommand('copy')
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0,
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 50, padding: '24px',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: '#111827',
+          border: `1px solid ${BORDER}`,
+          borderRadius: '12px',
+          padding: '28px',
+          width: '100%',
+          maxWidth: '600px',
+          maxHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 700, color: TEXT_PRIMARY, margin: 0 }}>
+            Post to LinkedIn
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: TEXT_MUTED, fontSize: '20px', cursor: 'pointer' }}>×</button>
+        </div>
+
+        <textarea
+          id="modal-content"
+          readOnly
+          value={post.content}
+          rows={10}
+          style={{
+            width: '100%',
+            backgroundColor: '#0d1424',
+            border: `1px solid ${BORDER}`,
+            borderRadius: '6px',
+            color: TEXT_PRIMARY,
+            fontSize: '14px',
+            padding: '12px',
+            resize: 'none',
+            lineHeight: '1.7',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+          }}
+        />
+
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleCopy}
+            style={{
+              backgroundColor: copied ? '#10b981' : GOLD,
+              color: '#0a0e1a',
+              border: 'none',
+              padding: '10px 24px',
+              borderRadius: '6px',
+              fontSize: '14px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              minWidth: '120px',
+            }}
+          >
+            {copied ? 'Copied ✓' : 'Copy Post'}
+          </button>
+
+          <button
+            onClick={() => window.open('https://www.linkedin.com/post/new', '_blank')}
+            style={{
+              backgroundColor: 'transparent',
+              color: TEXT_SECONDARY,
+              border: `1px solid ${BORDER}`,
+              padding: '10px 20px',
+              borderRadius: '6px',
+              fontSize: '14px',
+              cursor: 'pointer',
+            }}
+          >
+            Open LinkedIn →
+          </button>
+
+          <button
+            onClick={onConfirmPosted}
+            style={{
+              backgroundColor: 'transparent',
+              color: '#10b981',
+              border: `1px solid #10b981`,
+              padding: '10px 20px',
+              borderRadius: '6px',
+              fontSize: '14px',
+              cursor: 'pointer',
+              marginLeft: 'auto',
+            }}
+          >
+            Mark as Posted ✓
+          </button>
+        </div>
+
+        <p style={{ fontSize: '12px', color: TEXT_MUTED, margin: 0 }}>
+          Copy the post, paste it on LinkedIn, then click "Mark as Posted" to archive it here.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function QueuePage() {
   const [posts, setPosts] = useState<Post[]>([])
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
+  const [activeModal, setActiveModal] = useState<Post | null>(null)
 
   useEffect(() => {
     fetchPosts()
@@ -62,15 +196,19 @@ export default function QueuePage() {
     }
   }
 
-  async function handlePost(post: Post) {
-    try {
-      await navigator.clipboard.writeText(post.content)
-      setCopyFeedback(post.id)
-      setTimeout(() => setCopyFeedback(null), 2000)
-    } catch {
-      // clipboard may fail in some envs, proceed anyway
+  async function handleRevert(post: Post) {
+    const res = await fetch(`/api/posts/${post.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'approved', posted_at: null }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
     }
-    window.open('https://www.linkedin.com/post/new', '_blank')
+  }
+
+  async function handleConfirmPosted(post: Post) {
     const res = await fetch(`/api/posts/${post.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -80,14 +218,22 @@ export default function QueuePage() {
       const updated = await res.json()
       setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
     }
+    setActiveModal(null)
   }
 
   const filtered = filter === 'all' ? posts : posts.filter((p) => p.status === filter)
-
   const filterTabs: FilterStatus[] = ['all', 'draft', 'approved', 'posted']
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0e1a' }}>
+      {activeModal && (
+        <PostModal
+          post={activeModal}
+          onClose={() => setActiveModal(null)}
+          onConfirmPosted={() => handleConfirmPosted(activeModal)}
+        />
+      )}
+
       {/* Nav */}
       <nav
         style={{
@@ -182,14 +328,7 @@ export default function QueuePage() {
         )}
         {error && <p style={{ color: '#ef4444', fontSize: '14px' }}>Error: {error}</p>}
         {!loading && !error && filtered.length === 0 && (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '60px 0',
-              color: TEXT_MUTED,
-              fontSize: '14px',
-            }}
-          >
+          <div style={{ textAlign: 'center', padding: '60px 0', color: TEXT_MUTED, fontSize: '14px' }}>
             No posts yet.{' '}
             <Link href="/generate" style={{ color: GOLD, textDecoration: 'none' }}>
               Create one →
@@ -203,8 +342,7 @@ export default function QueuePage() {
             const isPosted = post.status === 'posted'
             const isApproved = post.status === 'approved'
             const isDraft = post.status === 'draft'
-            const preview =
-              post.content.slice(0, 150) + (post.content.length > 150 ? '…' : '')
+            const preview = post.content.slice(0, 150) + (post.content.length > 150 ? '…' : '')
 
             return (
               <div
@@ -217,15 +355,8 @@ export default function QueuePage() {
                   opacity: isPosted ? 0.6 : 1,
                 }}
               >
-                {/* Top row: status badge + date */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '10px',
-                  }}
-                >
+                {/* Top row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <span
                     style={{
                       fontSize: '11px',
@@ -248,76 +379,80 @@ export default function QueuePage() {
                 </div>
 
                 {/* Content preview */}
-                <p
-                  style={{
-                    fontSize: '14px',
-                    color: TEXT_PRIMARY,
-                    lineHeight: '1.6',
-                    margin: '0 0 14px',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
+                <p style={{ fontSize: '14px', color: TEXT_PRIMARY, lineHeight: '1.6', margin: '0 0 14px', whiteSpace: 'pre-wrap' }}>
                   {preview}
                 </p>
 
                 {/* Actions */}
-                {!isPosted && (
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {isApproved && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {isApproved && (
+                    <button
+                      onClick={() => setActiveModal(post)}
+                      style={{
+                        backgroundColor: GOLD,
+                        color: '#0a0e1a',
+                        border: 'none',
+                        padding: '7px 16px',
+                        borderRadius: '5px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Post →
+                    </button>
+                  )}
+                  {isDraft && (
+                    <>
                       <button
-                        onClick={() => handlePost(post)}
+                        onClick={() => handleApprove(post)}
                         style={{
-                          backgroundColor: GOLD,
-                          color: '#0a0e1a',
+                          backgroundColor: '#10b981',
+                          color: '#fff',
                           border: 'none',
                           padding: '7px 16px',
                           borderRadius: '5px',
                           fontSize: '13px',
-                          fontWeight: 700,
+                          fontWeight: 600,
                           cursor: 'pointer',
                         }}
                       >
-                        {copyFeedback === post.id ? 'Copied! ✓' : 'Post →'}
+                        Approve
                       </button>
-                    )}
-                    {isDraft && (
-                      <>
-                        <button
-                          onClick={() => handleApprove(post)}
-                          style={{
-                            backgroundColor: '#10b981',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '7px 16px',
-                            borderRadius: '5px',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Approve
-                        </button>
-                        <Link
-                          href={`/generate?edit=${post.id}`}
-                          style={{
-                            backgroundColor: 'transparent',
-                            color: TEXT_SECONDARY,
-                            border: `1px solid ${BORDER}`,
-                            padding: '7px 16px',
-                            borderRadius: '5px',
-                            fontSize: '13px',
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            textDecoration: 'none',
-                            display: 'inline-block',
-                          }}
-                        >
-                          Edit
-                        </Link>
-                      </>
-                    )}
-                  </div>
-                )}
+                      <Link
+                        href={`/generate?edit=${post.id}`}
+                        style={{
+                          backgroundColor: 'transparent',
+                          color: TEXT_SECONDARY,
+                          border: `1px solid ${BORDER}`,
+                          padding: '7px 16px',
+                          borderRadius: '5px',
+                          fontSize: '13px',
+                          textDecoration: 'none',
+                          display: 'inline-block',
+                        }}
+                      >
+                        Edit
+                      </Link>
+                    </>
+                  )}
+                  {isPosted && (
+                    <button
+                      onClick={() => handleRevert(post)}
+                      style={{
+                        backgroundColor: 'transparent',
+                        color: TEXT_MUTED,
+                        border: `1px solid ${BORDER}`,
+                        padding: '7px 14px',
+                        borderRadius: '5px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Revert to Approved
+                    </button>
+                  )}
+                </div>
               </div>
             )
           })}
