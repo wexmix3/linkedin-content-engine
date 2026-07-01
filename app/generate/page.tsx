@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { Zap, PenLine } from 'lucide-react'
 import { Post } from '@/lib/types'
 
 const SURFACE = '#111827'
@@ -246,7 +247,7 @@ function GeneratePageInner() {
                   cursor: 'pointer',
                 }}
               >
-                ⚡ Auto-generate
+                <Zap className="w-4 h-4 inline-block mr-1.5 align-middle" /> Auto-generate
               </button>
               <button
                 onClick={() => setMode('manual')}
@@ -261,7 +262,7 @@ function GeneratePageInner() {
                   cursor: 'pointer',
                 }}
               >
-                ✏️ Paste raw input
+                <PenLine className="w-4 h-4 inline-block mr-1.5 align-middle" /> Paste raw input
               </button>
             </div>
 
